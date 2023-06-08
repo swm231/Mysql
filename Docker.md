@@ -642,5 +642,390 @@ docker commit -m "提交的信息描述" -a "作者" 容器id 目标镜像名:[t
 # 4 将修改后的容器提交为一个镜像
 ```
 
+# 容器数据卷
 
+## 什么是容器数据卷
+
+**docker理念**
+
+将应用和环境打包成一个镜像。
+
+数据都存放在容器中，如果容器删除，那么数据就会丢失！==数据可以持久化==
+
+需求：数据可以存储在本地！
+
+容器之间可以有数据共享的技术！数据同步到本地！
+
+这就是**卷技术**
+
+## 使用数据卷
+
+- 使用命令来挂载  -v
+
+```shell
+docker run -it -v 主机目录:容器目录
+
+swm_231@iZ0jl8mpf6u9tuysfpxoorZ:~$ docker run -it -v /home/ceshi:/home/ centos /bin/bash
+```
+
+同步的过程是一个双向的过程！
+
+## 安装MySQL
+
+```shell
+# 获取镜像
+# 运行容器，需要做数据挂载
+# 官方测试：docker run --name some-mysql -e MYSQL_ROOT_PASSWORD=my-secret-pw -d mysql:tag
+
+swm_231@iZ0jl8mpf6u9tuysfpxoorZ:~$ docker run -d -p 9999:3306 -v /home/mysql/conf:/etc/mysql/conf.d -v /home/mysql/data:/var/lib/mysql -e MYSQL_ROOT_PASSWORD=123456 --name mysql01 mysql
+
+-d 后台运行
+-p 端口映射
+-v 数据卷挂载
+-e 环境配置
+--name 容器名
+```
+
+## 具名和匿名挂载
+
+```shell
+# 匿名挂载
+-v 容器内路径
+docker run -d -P -name nginx01 -v /etc/nginx nginx
+
+# 查看所有 volume 的情况
+swm_231@iZ0jl8mpf6u9tuysfpxoorZ:~$ docker volume ls
+DRIVER    VOLUME NAME
+local     e5b59ed3fa0fdd3642b0ac7d2c55a25150237d1b2b5df28918aa1f28a5257e80
+local     f534d8616920387fb2a0aaa869fbbae57b5e4cd83b2ed1d58b8238993ba9f29b
+# 这里就是匿名挂载
+
+# 具名挂载
+swm_231@iZ0jl8mpf6u9tuysfpxoorZ:~$ docker run -d -P --name nginx03 -v juming:/etc/nginx nginx
+f6a251e7cff43335111b4dc23e3f8b7482f5e0dc8404fcb580b888b377e056df
+swm_231@iZ0jl8mpf6u9tuysfpxoorZ:~$ docker volume ls
+DRIVER    VOLUME NAME
+local     e5b59ed3fa0fdd3642b0ac7d2c55a25150237d1b2b5df28918aa1f28a5257e80
+local     f534d8616920387fb2a0aaa869fbbae57b5e4cd83b2ed1d58b8238993ba9f29b
+local     juming
+
+# 查看这个卷
+swm_231@iZ0jl8mpf6u9tuysfpxoorZ:~$ docker volume inspect juming
+[
+    {
+        "CreatedAt": "2023-06-08T08:58:17+08:00",
+        "Driver": "local",
+        "Labels": null,
+        "Mountpoint": "/var/lib/docker/volumes/juming/_data",
+        "Name": "juming",
+        "Options": null,
+        "Scope": "local"
+    }
+]
+# 就可以看到其挂载的路径
+```
+
+```shell
+# 如何确定是具名挂载还是匿名挂载，还是指定路径挂载
+-v 容器内路径  		 # 匿名挂载
+-v 卷名:容器内路径 	# 具名挂载
+-v 主机路径:容器内路径  # 指定路径挂载 
+```
+
+拓展：
+
+```shell
+# 通过 -v 容器内路径:ro rw 改变读写权限
+ro readonly 	# 只读
+rw readwrite	# 可读可写
+
+# 一旦设置了这个权限，容器对挂载出来的内容就有了权限（用来限制容器的）
+docker dun -d -P --name nginx01 -v juming:/etc/nginx:ro nginx
+docker dun -d -P --name nginx02 -v juming:/etc/nginx:rw nginx
+```
+
+## Dockerfile
+
+Dockerfile就是用来构建docker镜像的构建文件！命令脚本！
+
+通过这个脚本可以生成镜像，镜像是一层一层的，脚本一个个的命令，每个命令都是一层。
+
+```shell
+# 创建一个dockerfile文件，名字可以随便，建议 dockerfile
+# 文件中的内容：指令（大写） 参数
+FROM centos
+
+VOLUME ["volume01", "volume02"]
+
+CMD echo "---------end------------"
+CMD /bin/bash
+# 这里的每个命令，都是镜像的一层
+
+root@iZ0jl8mpf6u9tuysfpxoorZ:/home/docker-test# docker run -it swm231/centos /bin/bash
+[root@49a434e208f3 /]# cd volume01
+[root@49a434e208f3 volume01]# touch test.cpp
+[root@49a434e208f3 volume01]# exit  
+exit
+root@iZ0jl8mpf6u9tuysfpxoorZ:/home/docker-test# cd /var/lib/docker/volumes/baa68c384f6fc601c5649a4acfdaa38016b498c0c02575d31f8a3a278619d52f/_data
+root@iZ0jl8mpf6u9tuysfpxoorZ:/var/lib/docker/volumes/baa68c384f6fc601c5649a4acfdaa38016b498c0c02575d31f8a3a278619d52f/_data# ls
+test.cpp
+# 可以发现，测试的文件被同步出去了
+```
+
+## 数据卷容器
+
+多个MySQL同步数据！
+
+```shell
+# 启动3个容器，通过自己写的镜像
+docker run -it --name docker01 swm231/centos
+docker run -it --name docker02 --volumes-from docker01 swm231/centos
+docker run -it --name docker03 --volumes-from docker01 swm231/centos
+# 通过 --volumes-from 数据都是共享的
+# 如果把docker01删除，docker02和docker03的文件还是可以共享的
+```
+
+```shell
+docker run -d -p 9999:3306 -v /etc/mysql/conf.d -v /var/lib/mysql -e MYSQL_ROOT_PASSWRAD=123456 --name mysql01 mysql
+docker run -d -p 9999:3306 -e MYSQL_ROOT_PASSWRAD=123456 --name mysql02 --volumes-from mysql01 mysql
+```
+
+结论：
+
+容器之间配置信息的传递，数据卷容器的生命周期一直持续到没有容器使用为止。
+
+但是一旦你持久化到了本地，那么本地的数据是不会被删除的。
+
+
+
+# DockerFile
+
+## 介绍
+
+dockerfile是用来构建docker镜像的文件，命令参数脚本。
+
+构建步骤：
+
+1. 编写一个dockerfile文件
+2. docker build 构建成为一个镜像
+3. docker run 运行镜像
+4. docker push 发布镜像（docker hub、阿里云镜像仓库）
+
+## 构建过程
+
+**基础知识**
+
+1. 每个保留关键字（指令）都必须是大写字母
+2. 执行顺序从上到下
+3. #表示注释
+4. 每个指令都会创建提交一个新的镜像层
+
+dockerfile是面向开发的，可以发布项目、做镜像，就需要编写dockerfile文件
+
+## 指令
+
+```shell
+FROM			# 基础镜像，一切从这里开始构建
+MAINTAINER		# 作者，姓名+邮箱
+RUN				# 镜像构建时需要运行的命令
+ADD				# 步骤：tomcat镜像，这个tomcat压缩包。添加内容
+WORKDIR			# 镜像的工作目录
+VOLUMES			# 挂载的目录
+EXPOSE			# 暴露端口配置
+CMD				# 指定容器启动的时候要运行的命令，只有最后一个会生效，可被替代
+ENTRYPOINT		# 指定容器启动的时候要运行的命令
+ONBUILD			# 当构建一个被继承 DockerFile 的时候就会运行这个指令。触发指令
+COPY			# 类似ADD，将文件拷贝到镜像中
+ENV				# 构建的时候设置环境变量
+```
+
+## 实战测试
+
+Docker Hub中 99% 的镜像都是从这个基础镜像过来的：FROM scratch，然后配置需要的软件和配置来进行构建
+
+> 创建一个自己的centos
+
+```shell
+# 编写dockerfile文件
+FROM centos:7
+MAINTAINER swm_231<swm_231@126.com>
+
+ENV MYPATH /usr/local
+WORKDIR $MYPATH
+
+RUN yum -y install vim
+RUN yum -y install net-tools
+
+EXPOSE 80
+
+CMD echo $MYPATH
+CMD echo "-----end------"
+CMD /bin/bash
+
+# 通过这个命令构建镜像
+# 命令 docker build -f dockerfile文件路径 -t 镜像名[:tag]
+
+# 测试运行
+```
+
+```shell
+# 查看某个镜像的构建历史
+docker history 镜像id
+# 可以看到某个镜像是怎么做的
+```
+
+> CMD 和 ENTRYPOINT 区别
+
+- 测试CMD
+
+```shell
+# 编写dockerfile
+root@iZ0jl8mpf6u9tuysfpxoorZ:/home/docker_file# vim docker-cmd
+FROM centos
+CMD ["ls", "-a"]
+
+# 构建镜像
+root@iZ0jl8mpf6u9tuysfpxoorZ:/home/docker_file# docker build -f docker-cmd -t cmdcentos .
+
+# 生成容器
+root@iZ0jl8mpf6u9tuysfpxoorZ:/home/docker_file# docker run 7d202bdf002b
+.
+..
+.dockerenv
+bin
+dev
+etc
+home
+lib
+lib64
+lost+found
+media
+mnt
+opt
+proc
+root
+run
+sbin
+srv
+sys
+tmp
+usr
+var
+
+# 如果想追加一个 -l
+root@iZ0jl8mpf6u9tuysfpxoorZ:/home/docker_file# docker run 7d202bdf002b -l
+docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: exec: "-l": executable file not found in $PATH: unknown.
+# 会报错，因为其替换了上一个CMD命令
+```
+
+- 测试ENTORTPONIT
+
+```shell
+# 编写dockerfile
+FROM centos
+ENTRYPOINT ["ls", '-a']
+
+# 构建镜像
+root@iZ0jl8mpf6u9tuysfpxoorZ:/home/docker_file# docker build -f docker-cmd -t entorypointcentos .
+
+# 生成容器（带参数）
+root@iZ0jl8mpf6u9tuysfpxoorZ:/home/docker_file# docker run b325f5b97233 -l
+total 56
+drwxr-xr-x   1 root root 4096 Jun  8 03:16 .
+drwxr-xr-x   1 root root 4096 Jun  8 03:16 ..
+-rwxr-xr-x   1 root root    0 Jun  8 03:16 .dockerenv
+lrwxrwxrwx   1 root root    7 Nov  3  2020 bin -> usr/bin
+drwxr-xr-x   5 root root  340 Jun  8 03:16 dev
+drwxr-xr-x   1 root root 4096 Jun  8 03:16 etc
+drwxr-xr-x   2 root root 4096 Nov  3  2020 home
+lrwxrwxrwx   1 root root    7 Nov  3  2020 lib -> usr/lib
+lrwxrwxrwx   1 root root    9 Nov  3  2020 lib64 -> usr/lib64
+drwx------   2 root root 4096 Sep 15  2021 lost+found
+drwxr-xr-x   2 root root 4096 Nov  3  2020 media
+drwxr-xr-x   2 root root 4096 Nov  3  2020 mnt
+drwxr-xr-x   2 root root 4096 Nov  3  2020 opt
+dr-xr-xr-x 196 root root    0 Jun  8 03:16 proc
+dr-xr-x---   2 root root 4096 Sep 15  2021 root
+drwxr-xr-x  11 root root 4096 Sep 15  2021 run
+lrwxrwxrwx   1 root root    8 Nov  3  2020 sbin -> usr/sbin
+drwxr-xr-x   2 root root 4096 Nov  3  2020 srv
+dr-xr-xr-x  13 root root    0 Jun  8 03:16 sys
+drwxrwxrwt   7 root root 4096 Sep 15  2021 tmp
+drwxr-xr-x  12 root root 4096 Sep 15  2021 usr
+drwxr-xr-x  20 root root 4096 Sep 15  2021 var
+```
+
+## Tomcat镜像
+
+1、准备文件，tomcat压缩包，jdk压缩包
+
+2、编写dockerfile文件，官方命名**Dockerfile**，build会自动寻找这个文件，不需要 -f 指定
+
+```shell
+# Dockerfile
+FROM centos:7
+MAINTAINER swm_231<1056338797@qq.com>
+
+COPY readme.txt /usr/local/readme.txt
+
+ADD jdk-8u11-linux-x64.tar.gz /usr/local/
+ADD apache-tomcat-9.0.22.tar.gz /usr/local/
+
+RUN yum install -y vim
+
+ENV MYPATH /usr/local
+WORKDIR $MYPATH
+
+ENV JAVA_HOME /usr/local/jdk1.8.0_11
+ENV CLASSPATH $JAVA_HOME/lib/dt.jar:$JAVA_HOME/lib/tools.jar
+ENV CATALINA_HOME /usr/local/apache-tomcat-9.0.22
+ENV CATALINA_BASH /usr/local/apache-tomcat-9.0.22
+ENV PATH $PATH:$JAVA_HOME/bin:$CATALINA_HOME/lib:$CATALINA_HOME/bin
+
+EXPOSE 8080
+
+CMD /usr/local/apache-tomcat-9.0.22/bin/startup.sh && tail -F /url/local/apache-tomcat-9.0.22/logs/catalina.out
+```
+
+3、构建镜像
+
+```shell
+# docker build -t diytomcat .
+```
+
+4、启动镜像
+
+5、访问测试
+
+6、发布项目
+
+## 发布自己的镜像
+
+> 在dockerhub上发布
+
+1、地址https://hub.docker.com/ 注册账号
+
+2、确定这个账号可以登录
+
+3、在服务器上提交镜像
+
+```shell
+root@iZ0jl8mpf6u9tuysfpxoorZ:~# docker login --help
+
+Usage:  docker login [OPTIONS] [SERVER]
+
+Log in to a registry.
+If no server is specified, the default is defined by the daemon.
+
+Options:
+  -p, --password string   Password
+      --password-stdin    Take the password from stdin
+  -u, --username string   Username
+```
+
+4、登录完之后就可以提交镜像了，然后 docker push
+
+```shell
+docker push 镜像名[:t]
+```
 
